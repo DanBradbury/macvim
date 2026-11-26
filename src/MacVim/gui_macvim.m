@@ -2846,3 +2846,64 @@ netbeans_draw_multisign_indicator(int row UNUSED)
     // NOP
 }
 #endif // FEAT_NETBEANS_INTG
+
+#ifdef FEAT_IMAGE_GUI
+    int
+image_gui_init(image_T *img UNUSED)
+{
+    return OK;
+}
+
+    void
+image_gui_uninit(image_T *img UNUSED)
+{
+}
+
+    int
+image_placement_gui_init(image_placement_T *place)
+{
+    // Mark this placement initialized so Vim clears its views before freeing it.
+    place->backend_data = place;
+    return OK;
+}
+
+    void
+image_placement_gui_clear(image_placement_T *place)
+{
+    [[MMBackend sharedInstance] queueMessage:SetImagePlacementMsgID
+            properties:@{@"id": @(place->id)}];
+}
+
+    void
+image_placement_gui_uninit(image_placement_T *place)
+{
+    place->backend_data = NULL;
+}
+
+    void
+image_placement_gui_draw(image_placement_T *place)
+{
+    image_T *img = place->img;
+    int count;
+    pixman_box32_t *rects = pixman_region32_rectangles(&place->visible, &count);
+    NSMutableArray *tiles = [NSMutableArray arrayWithCapacity:count];
+    for (int i = 0; i < count; ++i)
+    {
+        int row, col, x, y, w, h;
+        image_placement_subrect(place, rects[i], &row, &col, &x, &y, &w, &h, true);
+        if (w <= 0 || h <= 0)
+            continue;
+        size_t stride = (size_t)img->width * img->fmt;
+        size_t bytes = (size_t)w * img->fmt;
+        NSMutableData *pixels = [NSMutableData dataWithLength:bytes * h];
+        unsigned char *dst = [pixels mutableBytes];
+        for (int j = 0; j < h; ++j)
+            mch_memmove(dst + j * bytes,
+                    img->data + (y + j) * stride + (size_t)x * img->fmt, bytes);
+        [tiles addObject:@{@"row": @(row), @"col": @(col), @"width": @(w),
+                @"height": @(h), @"channels": @(img->fmt), @"pixels": pixels}];
+    }
+    [[MMBackend sharedInstance] queueMessage:SetImagePlacementMsgID
+            properties:@{@"id": @(place->id), @"tiles": tiles}];
+}
+#endif

@@ -360,6 +360,7 @@ extern const char * const MMVimMsgIDStrings[];
     MSG(DisableThinStrokesMsgID) \
     MSG(ShowDefinitionMsgID) \
     MSG(LoopBackMsgID) /* Simple message that Vim will reflect back to MacVim */ \
+    MSG(SetImagePlacementMsgID) \
     MSG(LastMsgID) \
 
 enum {

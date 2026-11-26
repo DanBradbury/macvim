@@ -40,6 +40,7 @@
     id                  backendProxy;
     NSMenu              *mainMenu;
     NSMutableArray      *popupMenuItems;
+    NSMutableDictionary *popupImageViews;
 
     // TODO: Move all toolbar code to window controller?
     NSToolbar           *toolbar;

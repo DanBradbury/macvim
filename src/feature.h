@@ -1132,7 +1132,8 @@
 #endif
 
 #if defined(ALLOW_IMAGE) && ((defined(FEAT_GUI_GTK) \
-	    && (defined(USE_GTK4) || defined(USE_GTK3))) || defined(FEAT_GUI_MSWIN))
+	    && (defined(USE_GTK4) || defined(USE_GTK3))) || defined(FEAT_GUI_MSWIN) \
+	    || defined(FEAT_GUI_MACVIM))
 # define FEAT_IMAGE_GUI
 #endif
 

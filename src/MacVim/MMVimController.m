@@ -37,6 +37,17 @@
 #import "MMWindow.h"
 
 
+// Image overlays must let the text view handle clicks and scrolling.
+@interface MMPopupImageView : NSImageView
+@end
+
+@implementation MMPopupImageView
+- (NSView *)hitTest:(NSPoint)point
+{
+    return nil;
+}
+@end
+
 static NSString * const MMDefaultToolbarImageName = @"Attention";
 static int MMAlertTextFieldHeight = 22;
 
@@ -243,6 +254,7 @@ static BOOL isUnsafeMessage(int msgid);
 #if MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_X_VERSION_10_12_2
     [touchbarInfo release]; touchbarInfo = nil;
 #endif
+    [popupImageViews release];
     [popupMenuItems release];  popupMenuItems = nil;
     [windowController release];  windowController = nil;
 
@@ -674,6 +686,56 @@ static BOOL isUnsafeMessage(int msgid);
 
 
 @implementation MMVimController (Private)
+- (void)setImagePlacement:(NSDictionary *)placement
+{
+    NSNumber *placementID = [placement objectForKey:@"id"];
+    for (NSView *view in [popupImageViews objectForKey:placementID])
+        [view removeFromSuperview];
+    [popupImageViews removeObjectForKey:placementID];
+
+    MMTextView *textView = [[self windowController] vimView].textView;
+    NSMutableArray *views = [NSMutableArray array];
+    for (NSDictionary *tile in [placement objectForKey:@"tiles"]) {
+        NSInteger width = [[tile objectForKey:@"width"] integerValue];
+        NSInteger height = [[tile objectForKey:@"height"] integerValue];
+        NSInteger channels = [[tile objectForKey:@"channels"] integerValue];
+        NSData *pixels = [tile objectForKey:@"pixels"];
+        if (width <= 0 || height <= 0 || (channels != 3 && channels != 4)
+                || width > NSIntegerMax / channels / height
+                || [pixels length] != (NSUInteger)(width * channels * height))
+            continue;
+
+        NSBitmapImageRep *bitmap = [[[NSBitmapImageRep alloc]
+                initWithBitmapDataPlanes:NULL pixelsWide:width pixelsHigh:height
+                bitsPerSample:8 samplesPerPixel:channels hasAlpha:channels == 4
+                isPlanar:NO colorSpaceName:NSDeviceRGBColorSpace
+                bitmapFormat:NSBitmapFormatAlphaNonpremultiplied
+                bytesPerRow:width * channels bitsPerPixel:channels * 8] autorelease];
+        if (![bitmap bitmapData])
+            continue;
+        [pixels getBytes:[bitmap bitmapData] length:[pixels length]];
+        NSRect cell = [textView rectForRow:[[tile objectForKey:@"row"] intValue]
+                column:[[tile objectForKey:@"col"] intValue] numRows:1 numColumns:1];
+        NSSize size = NSMakeSize(width, height);
+        NSRect frame = NSMakeRect(NSMinX(cell),
+                textView.isFlipped ? NSMinY(cell) : NSMaxY(cell) - height,
+                width, height);
+        NSImage *image = [[[NSImage alloc] initWithSize:size] autorelease];
+        [image addRepresentation:bitmap];
+        NSImageView *view = [[[MMPopupImageView alloc] initWithFrame:frame] autorelease];
+        view.imageScaling = NSImageScaleNone;
+        view.image = image;
+        view.autoresizingMask = textView.isFlipped ? NSViewMaxYMargin : NSViewMinYMargin;
+        [textView addSubview:view];
+        [views addObject:view];
+    }
+    if ([views count]) {
+        if (!popupImageViews)
+            popupImageViews = [[NSMutableDictionary alloc] init];
+        [popupImageViews setObject:views forKey:placementID];
+    }
+}
+
 
 - (void)doProcessInputQueue:(NSArray *)queue
 {
@@ -741,6 +803,9 @@ static BOOL isUnsafeMessage(int msgid);
             }
         }
         break;
+        case SetImagePlacementMsgID:
+            [self setImagePlacement:[NSDictionary dictionaryWithData:data]];
+            break;
         case BatchDrawMsgID:
         {
             if ([windowController isRenderBlocked]) {

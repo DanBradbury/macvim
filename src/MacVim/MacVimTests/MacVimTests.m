@@ -129,6 +129,51 @@ static NSDictionary<NSString *, id> *cachedAppDefaults;
     }];
 }
 
+- (void)testPopupImage {
+    [self createTestVimWindow];
+    MMVimController *vim = MMAppController.sharedInstance.keyVimController;
+    XCTSkipIf(![[vim evaluateVimExpression:@"has('image_popup')"] boolValue],
+              @"Build lacks pixman");
+    XCTAssertEqualObjects([vim evaluateVimExpression:@"v:imagebackend"], @"gui");
+    MMTextView *text = vim.windowController.vimView.textView;
+    NSUInteger before = text.subviews.count;
+    XCTAssertTrue([[vim evaluateVimExpression:@"popup_create('', #{image: #{data: 0z112233aabbcc, width: 2, height: 1}})"] integerValue] > 0);
+    [vim evaluateVimExpression:@"execute('redraw!')"];
+    [self waitForEventHandlingAndVimProcess];
+    XCTAssertEqual(text.subviews.count, before + 1);
+    NSImageView *view = (NSImageView *)text.subviews.lastObject;
+    if ([view isKindOfClass:[NSImageView class]]) {
+        NSBitmapImageRep *bitmap = (NSBitmapImageRep *)view.image.representations.firstObject;
+        XCTAssertEqual(bitmap.pixelsWide, 2);
+        XCTAssertEqual(bitmap.pixelsHigh, 1);
+        const unsigned char expected[] = {0x11, 0x22, 0x33, 0xaa, 0xbb, 0xcc};
+        XCTAssertEqual(memcmp(bitmap.bitmapData, expected, sizeof(expected)), 0);
+    } else {
+        XCTFail(@"Expected a native image view");
+    }
+    // Updating an existing popup must preserve straight alpha in the Cocoa
+    // bitmap, including fully transparent and partially transparent pixels.
+    [vim evaluateVimExpression:@"popup_setoptions(popup_list()[0], "
+            @"#{image: #{data: 0z11223300aabbcc80, width: 2, height: 1}})"];
+    [vim evaluateVimExpression:@"execute('redraw!')"];
+    [self waitForEventHandlingAndVimProcess];
+    NSImageView *updated = (NSImageView *)text.subviews.lastObject;
+    if ([updated isKindOfClass:[NSImageView class]]) {
+        NSBitmapImageRep *bitmap = (NSBitmapImageRep *)updated.image.representations.firstObject;
+        NSUInteger pixel[4] = {};
+        XCTAssertTrue(bitmap.hasAlpha);
+        [bitmap getPixel:pixel atX:0 y:0];
+        XCTAssertEqual(pixel[3], 0u);
+        [bitmap getPixel:pixel atX:1 y:0];
+        XCTAssertEqual(pixel[3], 128u);
+    } else {
+        XCTFail(@"Expected an updated native image view");
+    }
+    [vim evaluateVimExpression:@"popup_clear()"];
+    [self waitForEventHandlingAndVimProcess];
+    XCTAssertEqual(text.subviews.count, before);
+}
+
 /// Creates a file URL in a temporary directory. The file itself is not created.
 /// The directory will be cleaned up automatically.
 - (NSURL *)tempFile:(NSString *)name {

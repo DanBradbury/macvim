@@ -1,4 +1,4 @@
-*popup.txt*	For Vim version 9.2.  Last change: 2026 Sep 30
+*popup.txt*	For Vim version 9.2.  Last change: 2026 Nov 25
 
 
 		  VIM REFERENCE MANUAL	  by Bram Moolenaar
@@ -1196,7 +1196,7 @@ protocol to use is chosen using the 'imageprotocol' option:
 	    protocol to use in the terminal if it is available, as it is much
 	    more performant than sixel.
 
-When using the GUI, the GTK4, GTK3, and Win32 versions of Vim are supported.
+Popup images are supported in the GTK4, GTK3, Win32, and MacVim GUIs.
 
 To see what image backend is currently being used, use the |v:imagebackend|
 variable.

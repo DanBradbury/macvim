@@ -142,3 +142,10 @@ void gui_macvim_release_autoreleasepool(void *pool);
 void f_showdefinition(typval_T *argvars, typval_T *rettv);
 
 void netbeans_draw_multisign_indicator(int row);
+
+int image_gui_init(image_T *img);
+void image_gui_uninit(image_T *img);
+int image_placement_gui_init(image_placement_T *place);
+void image_placement_gui_uninit(image_placement_T *place);
+void image_placement_gui_draw(image_placement_T *place);
+void image_placement_gui_clear(image_placement_T *place);
