@@ -2725,7 +2725,7 @@ in_vim9script(void)
 			    // multiple signs exist on the line
 #endif
 
-#if defined(FEAT_GUI_GTK) && defined(FEAT_IMAGE)
+#if defined(FEAT_IMAGE) && (defined(FEAT_GUI_GTK) || defined(FEAT_GUI_MACVIM))
 // Logical pixels to physical pixels
 # define LOG2PHY(l) (gui.in_use ? (double)(l) * gui.scale : (l))
  // Physical pixels to logical pixels

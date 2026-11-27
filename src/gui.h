@@ -439,10 +439,11 @@ typedef struct Gui
 # ifdef GDK_WINDOWING_WAYLAND
     bool	is_wayland;	    // active gdk backend in gtk is wayland
 # endif
-# if defined(FEAT_IMAGE) && defined(FEAT_GUI_GTK)
-    double	scale;		    // Current scaling (may be fractional)
-# endif
 #endif	// FEAT_GUI_GTK
+
+#if defined(FEAT_IMAGE) && (defined(FEAT_GUI_GTK) || defined(FEAT_GUI_MACVIM))
+    double	scale;		    // Current scaling (may be fractional)
+#endif
 
 #if defined(FEAT_GUI_GTK) || defined(FEAT_GUI_MSWIN)
     char_u ligatures_map[256];	    // ascii map for characters 0-255, value is

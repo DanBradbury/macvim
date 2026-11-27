@@ -129,6 +129,20 @@ static NSDictionary<NSString *, id> *cachedAppDefaults;
     }];
 }
 
+/// Image overlays pass clicks through (hitTest: is always nil).
+- (NSArray<NSImageView *> *)popupImageViewsIn:(NSView *)text
+{
+    NSMutableArray<NSImageView *> *views = [NSMutableArray array];
+    for (NSView *view in text.subviews) {
+        if (![view isKindOfClass:[NSImageView class]])
+            continue;
+        NSPoint mid = NSMakePoint(NSMidX(view.bounds), NSMidY(view.bounds));
+        if ([view hitTest:mid] == nil)
+            [views addObject:(NSImageView *)view];
+    }
+    return views;
+}
+
 - (void)testPopupImage {
     [self createTestVimWindow];
     MMVimController *vim = MMAppController.sharedInstance.keyVimController;
@@ -140,38 +154,55 @@ static NSDictionary<NSString *, id> *cachedAppDefaults;
     XCTAssertTrue([[vim evaluateVimExpression:@"popup_create('', #{image: #{data: 0z112233aabbcc, width: 2, height: 1}})"] integerValue] > 0);
     [vim evaluateVimExpression:@"execute('redraw!')"];
     [self waitForEventHandlingAndVimProcess];
+    NSArray<NSImageView *> *views = [self popupImageViewsIn:text];
+    XCTAssertEqual(views.count, 1u);
     XCTAssertEqual(text.subviews.count, before + 1);
-    NSImageView *view = (NSImageView *)text.subviews.lastObject;
-    if ([view isKindOfClass:[NSImageView class]]) {
-        NSBitmapImageRep *bitmap = (NSBitmapImageRep *)view.image.representations.firstObject;
-        XCTAssertEqual(bitmap.pixelsWide, 2);
-        XCTAssertEqual(bitmap.pixelsHigh, 1);
-        const unsigned char expected[] = {0x11, 0x22, 0x33, 0xaa, 0xbb, 0xcc};
-        XCTAssertEqual(memcmp(bitmap.bitmapData, expected, sizeof(expected)), 0);
-    } else {
-        XCTFail(@"Expected a native image view");
-    }
+    NSImageView *view = views.firstObject;
+    NSBitmapImageRep *bitmap = (NSBitmapImageRep *)view.image.representations.firstObject;
+    XCTAssertEqual(bitmap.pixelsWide, 2);
+    XCTAssertEqual(bitmap.pixelsHigh, 1);
+    const unsigned char expected[] = {0x11, 0x22, 0x33, 0xaa, 0xbb, 0xcc};
+    XCTAssertEqual(memcmp(bitmap.bitmapData, expected, sizeof(expected)), 0);
+    // Tiles are physical pixels; the view is sized in points.
+    CGFloat scale = text.window.backingScaleFactor;
+    if (scale <= 0)
+        scale = 1.0;
+    XCTAssertEqualWithAccuracy(view.frame.size.width, 2.0 / scale, 0.01);
+    XCTAssertEqualWithAccuracy(view.frame.size.height, 1.0 / scale, 0.01);
+    XCTAssertFalse(NSEqualRects(view.frame, NSZeroRect));
     // Updating an existing popup must preserve straight alpha in the Cocoa
     // bitmap, including fully transparent and partially transparent pixels.
     [vim evaluateVimExpression:@"popup_setoptions(popup_list()[0], "
             @"#{image: #{data: 0z11223300aabbcc80, width: 2, height: 1}})"];
     [vim evaluateVimExpression:@"execute('redraw!')"];
     [self waitForEventHandlingAndVimProcess];
-    NSImageView *updated = (NSImageView *)text.subviews.lastObject;
-    if ([updated isKindOfClass:[NSImageView class]]) {
-        NSBitmapImageRep *bitmap = (NSBitmapImageRep *)updated.image.representations.firstObject;
-        NSUInteger pixel[4] = {};
-        XCTAssertTrue(bitmap.hasAlpha);
-        [bitmap getPixel:pixel atX:0 y:0];
-        XCTAssertEqual(pixel[3], 0u);
-        [bitmap getPixel:pixel atX:1 y:0];
-        XCTAssertEqual(pixel[3], 128u);
-    } else {
-        XCTFail(@"Expected an updated native image view");
-    }
+    views = [self popupImageViewsIn:text];
+    XCTAssertEqual(views.count, 1u);
+    NSImageView *updated = views.firstObject;
+    bitmap = (NSBitmapImageRep *)updated.image.representations.firstObject;
+    NSUInteger pixel[4] = {};
+    XCTAssertTrue(bitmap.hasAlpha);
+    [bitmap getPixel:pixel atX:0 y:0];
+    XCTAssertEqual(pixel[3], 0u);
+    [bitmap getPixel:pixel atX:1 y:0];
+    XCTAssertEqual(pixel[3], 128u);
+    // Hide must drop the overlay; show must restore it.
+    [vim evaluateVimExpression:@"call popup_hide(popup_list()[0])"];
+    [self waitForEventHandlingAndVimProcess];
+    XCTAssertEqual([self popupImageViewsIn:text].count, 0u);
+    [vim evaluateVimExpression:@"call popup_show(popup_list()[0]) | redraw!"];
+    [self waitForEventHandlingAndVimProcess];
+    XCTAssertEqual([self popupImageViewsIn:text].count, 1u);
     [vim evaluateVimExpression:@"popup_clear()"];
     [self waitForEventHandlingAndVimProcess];
+    XCTAssertEqual([self popupImageViewsIn:text].count, 0u);
     XCTAssertEqual(text.subviews.count, before);
+    // Invalid dimensions must not add a view or crash.
+    [vim evaluateVimExpression:@"call popup_create('', #{image: #{data: 0z11, width: 0, height: 1}}) | redraw!"];
+    [self waitForEventHandlingAndVimProcess];
+    XCTAssertEqual([self popupImageViewsIn:text].count, 0u);
+    [vim evaluateVimExpression:@"popup_clear()"];
+    [self waitForEventHandlingAndVimProcess];
 }
 
 /// Creates a file URL in a temporary directory. The file itself is not created.

@@ -682,7 +682,7 @@ gui_init(void)
      * Create the GUI shell.
      */
     gui.in_use = true;		// Must be set after menus have been set up
-#if defined(FEAT_GUI_GTK) && defined(FEAT_IMAGE)
+#if defined(FEAT_IMAGE) && (defined(FEAT_GUI_GTK) || defined(FEAT_GUI_MACVIM))
     gui.scale = 1.0; // Default value
 #endif
     if (gui_mch_init() == FAIL)

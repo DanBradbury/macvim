@@ -87,6 +87,7 @@
 
 - (void)passArguments:(NSDictionary *)args;
 - (void)sendMessage:(int)msgid data:(NSData *)data;
+- (void)notifyVimOfCellSize;
 - (BOOL)sendMessageNow:(int)msgid data:(NSData *)data
                timeout:(NSTimeInterval)timeout;
 - (void)addVimInput:(NSString *)string;
