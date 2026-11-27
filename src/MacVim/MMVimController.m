@@ -165,6 +165,8 @@ static BOOL isUnsafeMessage(int msgid);
 - (void)handleShowDialog:(NSDictionary *)attr;
 - (void)handleDeleteSign:(NSDictionary *)attr;
 - (void)setToolTipDelay;
+- (void)removePopupImageViewsForID:(id)placementID;
+- (void)removeAllPopupImageViews;
 @end
 
 
@@ -254,7 +256,8 @@ static BOOL isUnsafeMessage(int msgid);
 #if MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_X_VERSION_10_12_2
     [touchbarInfo release]; touchbarInfo = nil;
 #endif
-    [popupImageViews release];
+    [self removeAllPopupImageViews];
+    [popupImageViews release];  popupImageViews = nil;
     [popupMenuItems release];  popupMenuItems = nil;
     [windowController release];  windowController = nil;
 
@@ -459,6 +462,27 @@ static BOOL isUnsafeMessage(int msgid);
         ASLogDebug(@"processInput:data: failed: pid=%d id=%lu msg=%s reason=%@",
                 pid, identifier, MMVimMsgIDStrings[msgid], ex);
     }
+}
+
+- (void)notifyVimOfCellSize
+{
+    MMTextView *textView = windowController.vimView.textView;
+    if (textView == nil)
+        return;
+
+    NSSize cellsize = textView.cellSize;
+    double scale = 1.0;
+    if (textView.window)
+        scale = textView.window.backingScaleFactor;
+    else if ([NSScreen mainScreen])
+        scale = [NSScreen mainScreen].backingScaleFactor;
+    if (scale <= 0)
+        scale = 1.0;
+
+    NSMutableData *data = [NSMutableData dataWithCapacity:sizeof(cellsize) + sizeof(scale)];
+    [data appendBytes:&cellsize length:sizeof(cellsize)];
+    [data appendBytes:&scale length:sizeof(scale)];
+    [self sendMessage:UpdateCellSizeMsgID data:data];
 }
 
 - (BOOL)sendMessageNow:(int)msgid data:(NSData *)data
@@ -686,43 +710,83 @@ static BOOL isUnsafeMessage(int msgid);
 
 
 @implementation MMVimController (Private)
-- (void)setImagePlacement:(NSDictionary *)placement
+- (void)removePopupImageViewsForID:(id)placementID
 {
-    NSNumber *placementID = [placement objectForKey:@"id"];
+    if (placementID == nil)
+        return;
     for (NSView *view in [popupImageViews objectForKey:placementID])
         [view removeFromSuperview];
     [popupImageViews removeObjectForKey:placementID];
+}
+
+- (void)removeAllPopupImageViews
+{
+    for (id placementID in [popupImageViews allKeys])
+        [self removePopupImageViewsForID:placementID];
+}
+
+- (void)setImagePlacement:(NSDictionary *)placement
+{
+    if (![placement isKindOfClass:[NSDictionary class]])
+        return;
+
+    NSNumber *placementID = [placement objectForKey:@"id"];
+    [self removePopupImageViewsForID:placementID];
+    if (placementID == nil)
+        return;
 
     MMTextView *textView = [[self windowController] vimView].textView;
+    if (textView == nil)
+        return;
+
+    CGFloat scale = [[placement objectForKey:@"scale"] doubleValue];
+    if (scale <= 0) {
+        scale = textView.window.backingScaleFactor;
+        if (scale <= 0)
+            scale = 1.0;
+    }
+
     NSMutableArray *views = [NSMutableArray array];
     for (NSDictionary *tile in [placement objectForKey:@"tiles"]) {
+        if (![tile isKindOfClass:[NSDictionary class]])
+            continue;
         NSInteger width = [[tile objectForKey:@"width"] integerValue];
         NSInteger height = [[tile objectForKey:@"height"] integerValue];
         NSInteger channels = [[tile objectForKey:@"channels"] integerValue];
         NSData *pixels = [tile objectForKey:@"pixels"];
         if (width <= 0 || height <= 0 || (channels != 3 && channels != 4)
                 || width > NSIntegerMax / channels / height
+                || ![pixels isKindOfClass:[NSData class]]
                 || [pixels length] != (NSUInteger)(width * channels * height))
             continue;
 
+        NSBitmapFormat format = channels == 4
+                ? NSBitmapFormatAlphaNonpremultiplied : 0;
         NSBitmapImageRep *bitmap = [[[NSBitmapImageRep alloc]
                 initWithBitmapDataPlanes:NULL pixelsWide:width pixelsHigh:height
                 bitsPerSample:8 samplesPerPixel:channels hasAlpha:channels == 4
                 isPlanar:NO colorSpaceName:NSDeviceRGBColorSpace
-                bitmapFormat:NSBitmapFormatAlphaNonpremultiplied
+                bitmapFormat:format
                 bytesPerRow:width * channels bitsPerPixel:channels * 8] autorelease];
         if (![bitmap bitmapData])
             continue;
         [pixels getBytes:[bitmap bitmapData] length:[pixels length]];
+
+        // Tiles are in physical pixels. Size the view in points so the image
+        // stays aligned with the cell grid on Retina displays.
+        NSSize pointSize = NSMakeSize(width / scale, height / scale);
+        [bitmap setSize:pointSize];
         NSRect cell = [textView rectForRow:[[tile objectForKey:@"row"] intValue]
                 column:[[tile objectForKey:@"col"] intValue] numRows:1 numColumns:1];
-        NSSize size = NSMakeSize(width, height);
         NSRect frame = NSMakeRect(NSMinX(cell),
-                textView.isFlipped ? NSMinY(cell) : NSMaxY(cell) - height,
-                width, height);
-        NSImage *image = [[[NSImage alloc] initWithSize:size] autorelease];
+                textView.isFlipped ? NSMinY(cell) : NSMaxY(cell) - pointSize.height,
+                pointSize.width, pointSize.height);
+        NSImage *image = [[[NSImage alloc] initWithSize:pointSize] autorelease];
         [image addRepresentation:bitmap];
         NSImageView *view = [[[MMPopupImageView alloc] initWithFrame:frame] autorelease];
+        view.imageFrameStyle = NSImageFrameNone;
+        view.editable = NO;
+        view.animates = NO;
         view.imageScaling = NSImageScaleNone;
         view.image = image;
         view.autoresizingMask = textView.isFlipped ? NSViewMaxYMargin : NSViewMinYMargin;
@@ -1078,12 +1142,10 @@ static BOOL isUnsafeMessage(int msgid);
 
             [windowController setFont:font];
 
-            // Notify Vim of updated cell size for getcellpixels(). Note that
-            // this is asynchronous, which means getcellpixels() will not be
+            // Notify Vim of updated cell size for getcellpixels() and popup
+            // images. This is asynchronous, so getcellpixels() will not be
             // immediately reflected after setting guifont.
-            NSSize cellsize = windowController.vimView.textView.cellSize;
-            [self sendMessage:UpdateCellSizeMsgID
-                         data:[NSData dataWithBytes:&cellsize length:sizeof(cellsize)]];
+            [self notifyVimOfCellSize];
 
             [name release];
         }
@@ -1176,6 +1238,7 @@ static BOOL isUnsafeMessage(int msgid);
             int linespace = *((int*)bytes);
 
             [windowController adjustLinespace:linespace];
+            [self notifyVimOfCellSize];
         }
         break;
         case AdjustColumnspaceMsgID:
@@ -1184,6 +1247,7 @@ static BOOL isUnsafeMessage(int msgid);
             int columnspace = *((int*)bytes);
 
             [windowController adjustColumnspace:columnspace];
+            [self notifyVimOfCellSize];
         }
         break;
         case ActivateMsgID:

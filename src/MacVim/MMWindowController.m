@@ -1486,6 +1486,10 @@
 - (void)windowDidChangeBackingProperties:(NSNotification *)notification
 {
     ASLogDebug(@"");
+    // Cell size in points is unchanged, but the backing scale may have
+    // changed (e.g. dragging between 1x and 2x displays). Popup images need
+    // the new scale so they stay pixel-aligned.
+    [vimController notifyVimOfCellSize];
     [vimController sendMessage:RedrawMsgID data:nil];
 }
 

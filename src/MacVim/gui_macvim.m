@@ -2885,18 +2885,36 @@ image_placement_gui_draw(image_placement_T *place)
 {
     image_T *img = place->img;
     int count;
-    pixman_box32_t *rects = pixman_region32_rectangles(&place->visible, &count);
-    NSMutableArray *tiles = [NSMutableArray arrayWithCapacity:count];
+    pixman_box32_t *rects;
+    NSMutableArray *tiles;
+    double scale;
+
+    if (img == NULL || img->data == NULL || img->width <= 0 || img->height <= 0)
+        return;
+
+    rects = pixman_region32_rectangles(&place->visible, &count);
+    tiles = [NSMutableArray arrayWithCapacity:count];
+    scale = gui.scale > 0 ? gui.scale : 1.0;
     for (int i = 0; i < count; ++i)
     {
         int row, col, x, y, w, h;
+        size_t stride, bytes, nbytes;
+        NSMutableData *pixels;
+        unsigned char *dst;
+
         image_placement_subrect(place, rects[i], &row, &col, &x, &y, &w, &h, true);
-        if (w <= 0 || h <= 0)
+        if (w <= 0 || h <= 0 || x < 0 || y < 0
+                || x + w > img->width || y + h > img->height)
             continue;
-        size_t stride = (size_t)img->width * img->fmt;
-        size_t bytes = (size_t)w * img->fmt;
-        NSMutableData *pixels = [NSMutableData dataWithLength:bytes * h];
-        unsigned char *dst = [pixels mutableBytes];
+        stride = (size_t)img->width * img->fmt;
+        bytes = (size_t)w * img->fmt;
+        if (h != 0 && bytes > (SIZE_MAX / (size_t)h))
+            continue;
+        nbytes = bytes * (size_t)h;
+        pixels = [NSMutableData dataWithLength:nbytes];
+        dst = [pixels mutableBytes];
+        if (dst == NULL)
+            continue;
         for (int j = 0; j < h; ++j)
             mch_memmove(dst + j * bytes,
                     img->data + (y + j) * stride + (size_t)x * img->fmt, bytes);
@@ -2904,6 +2922,7 @@ image_placement_gui_draw(image_placement_T *place)
                 @"height": @(h), @"channels": @(img->fmt), @"pixels": pixels}];
     }
     [[MMBackend sharedInstance] queueMessage:SetImagePlacementMsgID
-            properties:@{@"id": @(place->id), @"tiles": tiles}];
+            properties:@{@"id": @(place->id), @"tiles": tiles,
+                    @"scale": @(scale)}];
 }
 #endif

@@ -2772,9 +2772,9 @@ static struct specialkey
 
 - (void)handleCellSize:(NSData *)data
 {
-    if (!data) return;
+    if (!data || [data length] < sizeof(NSSize)) return;
 
-    const void *bytes = [data bytes];
+    const char *bytes = [data bytes];
 
     // Don't use gui.char_width/height because for simplicity we set those to
     // 1. We store the cell size separately and let update_cell_size() pick it
@@ -2782,6 +2782,16 @@ static struct specialkey
     // terminal Vim than GUI Vim, due to the async multi-process architecture
     // of MacVim.
     memcpy(&_cellSize, bytes, sizeof(NSSize));
+#if defined(FEAT_IMAGE)
+    // Optional trailing double is the window backing scale. Older frontends
+    // only send NSSize; keep the default (1.0) in that case.
+    if ([data length] >= sizeof(NSSize) + sizeof(double)) {
+        double scale;
+        memcpy(&scale, bytes + sizeof(NSSize), sizeof(double));
+        if (scale > 0)
+            gui.scale = scale;
+    }
+#endif
 #if defined(FEAT_IMAGE) || defined(FEAT_EVAL)
     update_cell_size();
 #endif
